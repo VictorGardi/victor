@@ -37,3 +37,7 @@ opt.splitbelow = true -- split horizontal window to the bottom
 
 -- turn off swapfile
 opt.swapfile = false
+
+-- Enable mouse support for resizing windows
+opt.mouse = "a" -- Enable mouse in all modes
+opt.mousemoveevent = true -- Enable mouse move events

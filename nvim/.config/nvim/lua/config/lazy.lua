@@ -14,10 +14,21 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+-- Disable LazyVim's default keymaps before setup
+vim.g.lazyvim_picker = "telescope" -- Use telescope as picker
+-- We'll override keymaps in our own telescope config
+
 require("lazy").setup({
+
   spec = {
     -- add LazyVim and import its plugins
-    { "LazyVim/LazyVim", import = "lazyvim.plugins" },
+    { "LazyVim/LazyVim", import = "lazyvim.plugins", opts = {
+      -- Disable LazyVim's default keymaps
+      defaults = {
+        keymaps = false,
+      },
+    }},
+    { "nvim-treesitter/nvim-treesitter", branch = "master", lazy = false, build = ":TSUpdate" },
     -- import/override with your plugins
     { import = "plugins" },
   },

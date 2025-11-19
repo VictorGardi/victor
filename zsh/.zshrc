@@ -3,9 +3,17 @@
 
 # Path to your oh-my-zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
+unset DOCKER_HOST
 
 alias python="python3"
 alias vim="nvim"
+alias notes="vim ~/notes"
+function ns() {
+    cd ~/notes
+    git add .
+    git commit -a -m "save notes"
+    git push
+}
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time oh-my-zsh is loaded, in which case,
@@ -104,3 +112,7 @@ source $ZSH/oh-my-zsh.sh
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
+
+. "$HOME/.local/bin/env"
+
+eval "$(zoxide init zsh)"

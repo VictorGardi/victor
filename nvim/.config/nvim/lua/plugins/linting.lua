@@ -13,6 +13,10 @@ return {
       python = { "ruff" },
     }
 
+    -- Configure ruff to use pyproject.toml (it auto-discovers it)
+    -- Ruff automatically searches for pyproject.toml, ruff.toml, or .ruff.toml
+    -- in the current directory and parent directories
+
     local lint_augroup = vim.api.nvim_create_augroup("lint", { clear = true })
 
     vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "InsertLeave" }, {

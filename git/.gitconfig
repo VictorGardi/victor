@@ -1,3 +1,10 @@
 [user]
-	name = Victor
-	email = victor.olssn@gmail.com
+	name = Victor Olsson
+	email = victor.olsson@norionbank.se
+[credential]
+	helper = 
+	helper = /usr/local/share/gcm-core/git-credential-manager
+[credential "https://dev.azure.com"]
+	useHttpPath = true
+[credential "https://norionbank.ghe.com"]
+	provider = github

@@ -1,5 +1,6 @@
 return {
   "goolord/alpha-nvim",
+  enabled = false, -- Disabled to improve startup time
   event = "VimEnter",
   config = function()
     local alpha = require("alpha")

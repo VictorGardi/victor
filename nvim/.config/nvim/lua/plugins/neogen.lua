@@ -1,6 +1,6 @@
 return {
   "danymat/neogen",
-
+  enabled = false, -- Disabled - enable if you need docstring generation
   config = function()
     require("neogen").setup({
       languages = {

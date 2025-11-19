@@ -16,7 +16,33 @@ return {
       graphql = { "prettier" },
       liquid = { "prettier" },
       lua = { "stylua" },
-      python = { "isort", "black" },
+      python = { "ruff_format", "ruff_organize_imports" },
+    },
+    -- Configure ruff to use pyproject.toml
+    formatters = {
+      ruff_format = {
+        command = "ruff",
+        args = {
+          "format",
+          "--force-exclude",
+          "--stdin-filename",
+          "$FILENAME",
+          "-",
+        },
+      },
+      ruff_organize_imports = {
+        command = "ruff",
+        args = {
+          "check",
+          "--select",
+          "I",
+          "--fix",
+          "--force-exclude",
+          "--stdin-filename",
+          "$FILENAME",
+          "-",
+        },
+      },
     },
   },
   keys = {
