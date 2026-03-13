@@ -1,11 +1,17 @@
 return {
   "akinsho/bufferline.nvim",
   event = "VeryLazy",
-  dependencies = { "nvim-tree/nvim-web-devicons" },
+  dependencies = { "nvim-tree/nvim-web-devicons", "catppuccin/nvim" },
   version = "*",
   config = function()
+    local highlights = {}
+    local ok, catppuccin_bl = pcall(require, "catppuccin.groups.integrations.bufferline")
+    if ok then
+      highlights = catppuccin_bl.get()
+    end
+
     require("bufferline").setup({
-      highlights = require("catppuccin.groups.integrations.bufferline").get(),
+      highlights = highlights,
       options = {
         mode = "tabs",
         always_show_bufferline = false,
