@@ -1,46 +1,56 @@
 return {
-  "neanias/everforest-nvim",
-  version = false,
+  "catppuccin/nvim",
+  name = "catppuccin",
   lazy = false,
   priority = 1000,
-  config = function()
-    require("everforest").setup({
-      background = "hard", -- Options: "hard", "medium", "soft"
-      transparent_background_level = 0,
-      italics = false,
-      disable_italic_comments = false,
-      sign_column_background = "none",
-      ui_contrast = "low", -- "low" or "high"
-      dim_inactive_windows = false,
-      diagnostic_text_highlight = false,
-      diagnostic_virtual_text = "coloured",
-      diagnostic_line_highlight = false,
-      spell_foreground = false,
-      show_eob = true,
-      float_style = "dim", -- "bright" or "dim"
-      on_highlights = function(hl, palette)
-        -- You can customize highlights here if needed
-      end,
-      colours_override = function(palette)
-        -- You can override colors here if needed
-      end,
-    })
-
-    vim.cmd("colorscheme everforest")
-    
-    vim.cmd([[
-      highlight NormalFloat guibg=NONE ctermbg=NONE
-      highlight FloatBorder guibg=NONE ctermbg=NONE
-      
-      highlight AvanteTitle guifg=#A7C080 gui=bold guibg=NONE ctermbg=NONE
-      highlight AvanteReversedTitle guifg=#A7C080 gui=bold guibg=NONE ctermbg=NONE
-      highlight AvanteSubtitle guifg=#D3C6AA gui=italic guibg=NONE ctermbg=NONE
-      highlight AvanteReversedSubtitle guifg=#D3C6AA gui=italic guibg=NONE ctermbg=NONE
-      highlight AvanteThirdTitle guifg=#7FBBB3 guibg=NONE ctermbg=NONE
-      highlight AvanteReversedThirdTitle guifg=#7FBBB3 guibg=NONE ctermbg=NONE
-      
-      highlight NuiNormal guibg=NONE ctermbg=NONE
-      highlight NuiNormalNC guibg=NONE ctermbg=NONE
-    ]])
+  opts = {
+    flavour = "mocha",
+    background = { light = "latte", dark = "mocha" },
+    transparent_background = false,
+    show_end_of_buffer = false,
+    term_colors = true,
+    styles = {
+      comments = { "italic" },
+      conditionals = { "italic" },
+      keywords = {},
+      functions = {},
+      strings = {},
+    },
+    integrations = {
+      cmp = true,
+      gitsigns = true,
+      nvimtree = true,
+      treesitter = true,
+      telescope = { enabled = true },
+      which_key = true,
+      indent_blankline = { enabled = true, scope_color = "lavender", colored_indent_levels = false },
+      mini = { enabled = true, indentscope_color = "lavender" },
+      lsp_trouble = true,
+      bufferline = true,
+      noice = true,
+      barbecue = { dim_dirname = true, bold_basename = true, dim_context = false, alt_background = false },
+      diffview = true,
+      render_markdown = true,
+      native_lsp = {
+        enabled = true,
+        virtual_text = {
+          errors = { "italic" },
+          hints = { "italic" },
+          warnings = { "italic" },
+          information = { "italic" },
+        },
+        underlines = {
+          errors = { "underline" },
+          hints = { "underline" },
+          warnings = { "underline" },
+          information = { "underline" },
+        },
+        inlay_hints = { background = true },
+      },
+    },
+  },
+  config = function(_, opts)
+    require("catppuccin").setup(opts)
+    vim.cmd.colorscheme("catppuccin")
   end,
 }

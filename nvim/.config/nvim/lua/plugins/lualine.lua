@@ -3,25 +3,35 @@ return {
   event = "VeryLazy",
   dependencies = { "nvim-tree/nvim-web-devicons" },
   config = function()
-    local lualine = require("lualine")
-    local lazy_status = require("lazy.status") -- to configure lazy pending updates count
+    local lazy_status = require("lazy.status")
 
-    lualine.setup({
+    require("lualine").setup({
       options = {
-        theme = "auto",
+        theme = "catppuccin",
         globalstatus = true,
+        component_separators = { left = "", right = "" },
+        section_separators = { left = "", right = "" },
       },
       sections = {
+        lualine_a = { "mode" },
+        lualine_b = {
+          { "branch", icon = "" },
+          { "diff", symbols = { added = " ", modified = " ", removed = " " } },
+          "diagnostics",
+        },
+        lualine_c = {
+          { "filename", path = 1, symbols = { modified = "●", readonly = "", unnamed = "" } },
+        },
         lualine_x = {
           {
             lazy_status.updates,
             cond = lazy_status.has_updates,
             color = { fg = "#ff9e64" },
           },
-          { "encoding" },
-          { "fileformat" },
-          { "filetype" },
+          "filetype",
         },
+        lualine_y = { "progress" },
+        lualine_z = { "location" },
       },
     })
   end,

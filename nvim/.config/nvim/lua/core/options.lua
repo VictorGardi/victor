@@ -45,3 +45,8 @@ opt.swapfile = false
 
 -- Enable mouse support for resizing windows
 opt.mouse = "a" -- Enable mouse in all modes
+
+-- Rounded borders for diagnostics float
+vim.diagnostic.config({
+  float = { border = "rounded", source = "always" },
+})
