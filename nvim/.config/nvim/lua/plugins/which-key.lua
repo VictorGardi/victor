@@ -3,11 +3,16 @@ return {
   event = "VeryLazy",
   init = function()
     vim.o.timeout = true
-    vim.o.timeoutlen = 500
+    vim.o.timeoutlen = 300
   end,
   opts = {
-    -- your configuration comes here
-    -- or leave it empty to use the default settings
-    -- refer to the configuration section below
+    spec = {
+      { "<leader>r", group = "review" },
+      { "<leader>m", group = "markdown" },
+      { "<leader>g", group = "git" },
+      { "<leader>h", group = "hunks" },
+      { "<leader>f", group = "find" },
+      { "<leader>x", group = "diagnostics" },
+    },
   },
 }

@@ -1,3 +1,5 @@
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
 vim.cmd("let g:netrw_liststyle = 3")
 
 local opt = vim.opt
@@ -18,6 +20,8 @@ opt.ignorecase = true -- ignore case when searching
 opt.smartcase = true -- if you include mixed case in your search, assumes you want case-sensitive
 
 opt.cursorline = true
+opt.scrolloff = 4
+opt.sidescrolloff = 8
 
 -- turn on termguicolors for tokyonight colorscheme to work
 -- (have to use iterm2 or any other true color terminal)
@@ -34,10 +38,10 @@ opt.clipboard:append("unnamedplus") -- use system clipboard as default register
 -- split windows
 opt.splitright = true -- split vertical window to the right
 opt.splitbelow = true -- split horizontal window to the bottom
+opt.diffopt:append("linematch:60")
 
 -- turn off swapfile
 opt.swapfile = false
 
 -- Enable mouse support for resizing windows
 opt.mouse = "a" -- Enable mouse in all modes
-opt.mousemoveevent = true -- Enable mouse move events
