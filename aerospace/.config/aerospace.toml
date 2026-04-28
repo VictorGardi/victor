@@ -221,9 +221,6 @@ ctrl-shift-l = ['join-with right', 'mode main']
 # App-specific window assignments
 
 # Work setup assignments
-[[on-window-detected]]
-if.app-id = 'com.github.wez.wezterm'
-run = "move-node-to-workspace T"
 
 [[on-window-detected]]
 if.app-id = 'com.google.Chrome'
