@@ -1,0 +1,658 @@
+#!/usr/bin/env bash
+# ws — workspace orchestrator
+#
+# Manages development workspaces as tmux sessions, driven by task files
+# stored in .tasks/ inside git repos under ~/git.
+#
+# Usage:
+#   ws              → fzf picker over all tasks → open workspace
+#   ws open         → same as ws
+#   ws list         → print all tasks (no picker)
+#   ws sessions     → list active ws tmux sessions
+#   ws kill         → fzf over active sessions → kill selected
+#   ws attach       → fzf over active sessions → attach selected
+#   ws help         → show this help
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+WS_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/ws/config"
+WS_DEFAULT_GIT_ROOT="$HOME/git"
+WS_DEFAULT_AGENT="opencode"
+WS_DEFAULT_EDITOR="nvim ."
+WS_DEFAULT_SHELL="${SHELL:-zsh}"
+
+# ---------------------------------------------------------------------------
+# Bootstrap: ensure dependencies exist
+# ---------------------------------------------------------------------------
+
+_require_tmux() {
+  if ! command -v tmux &>/dev/null; then
+    echo "ws: error: tmux is required but not found in PATH" >&2
+    exit 1
+  fi
+}
+
+_ensure_fzf() {
+  if ! command -v fzf &>/dev/null; then
+    echo "ws: fzf not found — installing via Homebrew..." >&2
+    if ! command -v brew &>/dev/null; then
+      echo "ws: error: Homebrew not found. Install fzf manually: https://github.com/junegunn/fzf" >&2
+      exit 1
+    fi
+    brew install fzf
+  fi
+}
+
+_ensure_config() {
+  local config_dir
+  config_dir="$(dirname "$WS_CONFIG")"
+  if [[ ! -f "$WS_CONFIG" ]]; then
+    mkdir -p "$config_dir"
+    cat > "$WS_CONFIG" <<EOF
+# ws configuration
+# All values are overridable per-task via frontmatter fields.
+
+git_root: $HOME/git
+agent: opencode
+editor: nvim .
+shell: zsh
+EOF
+    echo "ws: created default config at $WS_CONFIG" >&2
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Config reader — parses simple "key: value" lines (no yq required)
+# ---------------------------------------------------------------------------
+
+_cfg() {
+  local key="$1"
+  local default="${2:-}"
+  if [[ -f "$WS_CONFIG" ]]; then
+    local val
+    val=$(grep -E "^${key}:[[:space:]]*" "$WS_CONFIG" 2>/dev/null \
+          | head -1 \
+          | sed "s/^${key}:[[:space:]]*//" \
+          | tr -d '"'"'" \
+          | sed "s|~|$HOME|g")
+    echo "${val:-$default}"
+  else
+    echo "$default"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Frontmatter parser — extracts YAML fields from markdown task files
+# ---------------------------------------------------------------------------
+
+# fm_get <field> <file>
+# Reads the YAML frontmatter block (between the first two --- delimiters)
+# and returns the value for the given field. Empty string if not found.
+fm_get() {
+  local field="$1"
+  local file="$2"
+  awk 'BEGIN{inside=0}
+       /^---$/ { inside++; if(inside==2) exit; next }
+       inside==1 { print }' "$file" \
+  | grep -E "^${field}:[[:space:]]*" \
+  | head -1 \
+  | sed "s/^${field}:[[:space:]]*//" \
+  | tr -d '"'"'" \
+  || true
+}
+
+# ---------------------------------------------------------------------------
+# Task discovery — finds all .tasks/**/*.md across repos under git_root
+# ---------------------------------------------------------------------------
+
+_git_root() {
+  _cfg "git_root" "$WS_DEFAULT_GIT_ROOT"
+}
+
+# Outputs one line per task file path
+_scan_tasks() {
+  local git_root
+  git_root="$(_git_root)"
+  # Find .md files two levels under .tasks/ (i.e. .tasks/<status>/<file>.md)
+  # Skip .worktrees directories to avoid picking up worktree copies
+  find "$git_root" \
+    -maxdepth 5 \
+    -path "*/.tasks/*/*.md" \
+    -not -path "*/.worktrees/*" \
+    -type f \
+    2>/dev/null \
+  | sort
+}
+
+# Extract repo name from a task file path
+# e.g. /Users/x/git/payments-api/.tasks/doing/T-104.md → payments-api
+_repo_from_path() {
+  local file="$1"
+  local git_root
+  git_root="$(_git_root)"
+  # Strip git_root prefix, take first path component
+  echo "$file" | sed "s|^${git_root}/||" | cut -d/ -f1
+}
+
+# Extract repo root path from a task file path
+_repo_root_from_path() {
+  local file="$1"
+  local git_root
+  git_root="$(_git_root)"
+  local repo
+  repo="$(_repo_from_path "$file")"
+  echo "${git_root}/${repo}"
+}
+
+# Extract status from parent directory name
+# e.g. .tasks/doing/T-104.md → doing
+_status_from_path() {
+  local file="$1"
+  basename "$(dirname "$file")"
+}
+
+# ---------------------------------------------------------------------------
+# Formatting — builds the fzf / list display line for a task
+# ---------------------------------------------------------------------------
+
+# Outputs: "T-001  Title                          repo            · status  /full/path"
+# The path is the last tab-separated field (used internally for selection).
+_format_task_line() {
+  local file="$1"
+  local id title repo status
+
+  id="$(fm_get "id" "$file")"
+  title="$(fm_get "title" "$file")"
+  repo="$(_repo_from_path "$file")"
+  status="$(_status_from_path "$file")"
+
+  # Fallback: derive id from filename if frontmatter missing
+  if [[ -z "$id" ]]; then
+    id="$(basename "$file" .md | grep -oE '^T-[0-9]+')"
+  fi
+  if [[ -z "$title" ]]; then
+    title="$(basename "$file" .md | sed 's/^T-[0-9]*-//' | tr '-' ' ')"
+  fi
+
+  # Fixed-width columns for readable fzf output
+  printf "%-8s  %-45s  %-25s  %-10s\t%s\n" \
+    "$id" "$title" "$repo" "$status" "$file"
+}
+
+# ---------------------------------------------------------------------------
+# Session naming: repo--T-NNN
+# (colon is banned in tmux session names)
+# ---------------------------------------------------------------------------
+
+_session_name() {
+  local repo="$1"
+  local id="$2"
+  echo "${repo}--${id}"
+}
+
+# ---------------------------------------------------------------------------
+# Worktree support
+# ---------------------------------------------------------------------------
+
+_ensure_worktree() {
+  local repo_root="$1"
+  local task_slug="$2"   # filename stem, e.g. T-001-build-grove-nvim
+
+  local worktree_path="${repo_root}/.worktrees/${task_slug}"
+
+  if [[ ! -d "$worktree_path" ]]; then
+    echo "ws: creating worktree at ${worktree_path} ..." >&2
+    # Try to create a new branch; if it already exists, just add the worktree
+    if ! git -C "$repo_root" worktree add "$worktree_path" -b "$task_slug" 2>/dev/null; then
+      git -C "$repo_root" worktree add "$worktree_path" "$task_slug" 2>/dev/null \
+        || git -C "$repo_root" worktree add "$worktree_path" 2>/dev/null
+    fi
+  fi
+
+  echo "$worktree_path"
+}
+
+# ---------------------------------------------------------------------------
+# Task creation helpers
+# ---------------------------------------------------------------------------
+
+# Scan all .tasks/**/*.md in a repo and return the next T-NNN id.
+_next_id() {
+  local repo_root="$1"
+  local max=0
+  local n
+  while IFS= read -r f; do
+    n="$(basename "$f" .md | grep -oE '^T-[0-9]+' | grep -oE '[0-9]+' || true)"
+    [[ -n "$n" && "$n" -gt "$max" ]] && max="$n"
+  done < <(find "$repo_root/.tasks" -name "*.md" -type f 2>/dev/null)
+  printf "T-%03d" $((max + 1))
+}
+
+# Convert a title to a URL-safe slug: lowercase, spaces→hyphens, strip specials.
+_slugify() {
+  echo "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9 -]//g' \
+    | sed 's/[[:space:]]\{1,\}/-/g' \
+    | sed 's/-\{2,\}/-/g' \
+    | sed 's/^-//;s/-$//'
+}
+
+# Bootstrap .tasks/{backlog,doing,review,done}/ in a repo if not present.
+_ensure_task_dirs() {
+  local repo_root="$1"
+  mkdir -p \
+    "$repo_root/.tasks/backlog" \
+    "$repo_root/.tasks/doing" \
+    "$repo_root/.tasks/review" \
+    "$repo_root/.tasks/done"
+}
+
+# Write a full task-format markdown file.
+_write_task_template() {
+  local file="$1"
+  local id="$2"
+  local title="$3"
+  local workspace="$4"
+  local date
+  date="$(date +%Y-%m-%d)"
+
+  cat > "$file" <<EOF
+---
+id: $id
+title: $title
+status: backlog
+priority: medium
+created_at: $date
+workspace: $workspace
+---
+
+# Goal
+
+$title
+
+# Context
+
+<!-- Add background, constraints, and relevant links here -->
+
+# Implementation Plan
+
+1. <!-- Step 1 -->
+
+# Definition of Done
+
+- [ ] <!-- Criterion 1 -->
+
+# Risks
+
+- <!-- Risk 1 -->
+
+# Notes
+
+Generated via ws
+EOF
+}
+
+_session_exists() {
+  local session="$1"
+  tmux has-session -t "$session" 2>/dev/null
+}
+
+_attach_or_switch() {
+  local session="$1"
+  if [[ -n "${TMUX:-}" ]]; then
+    # Already inside tmux — switch client
+    tmux switch-client -t "$session"
+  else
+    # Outside tmux — attach
+    tmux attach-session -t "$session"
+  fi
+}
+
+# Create a 3-window ws session idempotently.
+# Window order: agent, editor (focused), shell
+_create_session() {
+  local session="$1"
+  local work_dir="$2"
+  local agent_cmd="$3"
+  local editor_cmd="$4"
+  local shell_cmd="$5"
+
+  echo "ws: creating session '$session' in $work_dir ..." >&2
+
+  # Create session detached, first window = agent
+  tmux new-session -d -s "$session" -c "$work_dir" -n "agent"
+  tmux send-keys -t "${session}:agent" "$agent_cmd" Enter
+
+  # Window 2: editor
+  tmux new-window -t "$session" -n "editor" -c "$work_dir"
+  tmux send-keys -t "${session}:editor" "$editor_cmd" Enter
+
+  # Window 3: shell (interactive, no command sent — just starts the shell)
+  tmux new-window -t "$session" -n "shell" -c "$work_dir"
+  # Send shell command only if it differs from the default shell
+  # (sending "zsh" to a zsh shell would nest shells unnecessarily)
+  local current_shell
+  current_shell="$(basename "${SHELL:-zsh}")"
+  local requested_shell
+  requested_shell="$(basename "$shell_cmd")"
+  if [[ "$requested_shell" != "$current_shell" ]]; then
+    tmux send-keys -t "${session}:shell" "$shell_cmd" Enter
+  fi
+
+  # Focus the editor window
+  tmux select-window -t "${session}:editor"
+}
+
+# ---------------------------------------------------------------------------
+# Core open logic
+# ---------------------------------------------------------------------------
+
+_open_task() {
+  local file="$1"
+
+  # --- read task fields ---
+  local id title repo repo_root work_dir session
+  local worktree agent_cmd editor_cmd shell_cmd
+
+  id="$(fm_get "id" "$file")"
+  repo="$(_repo_from_path "$file")"
+  repo_root="$(_repo_root_from_path "$file")"
+
+  # Fallback id from filename
+  if [[ -z "$id" ]]; then
+    id="$(basename "$file" .md | grep -oE '^T-[0-9]+')"
+  fi
+
+  session="$(_session_name "$repo" "$id")"
+
+  # If session already exists, just attach
+  if _session_exists "$session"; then
+    echo "ws: attaching to existing session '$session'" >&2
+    _attach_or_switch "$session"
+    return
+  fi
+
+  # --- resolve working directory ---
+  worktree="$(fm_get "worktree" "$file")"
+  work_dir="$repo_root"
+
+  if [[ "$worktree" == "true" ]]; then
+    local task_slug
+    task_slug="$(basename "$file" .md)"
+    work_dir="$(_ensure_worktree "$repo_root" "$task_slug")"
+  fi
+
+  # Validate work_dir exists
+  if [[ ! -d "$work_dir" ]]; then
+    echo "ws: error: working directory does not exist: $work_dir" >&2
+    exit 1
+  fi
+
+  # --- resolve window commands (task overrides global config) ---
+  agent_cmd="$(fm_get "agent" "$file")"
+  editor_cmd="$(fm_get "editor" "$file")"
+  shell_cmd="$(fm_get "shell" "$file")"
+
+  [[ -z "$agent_cmd"  ]] && agent_cmd="$(_cfg "agent"  "$WS_DEFAULT_AGENT")"
+  [[ -z "$editor_cmd" ]] && editor_cmd="$(_cfg "editor" "$WS_DEFAULT_EDITOR")"
+  [[ -z "$shell_cmd"  ]] && shell_cmd="$(_cfg "shell"   "$WS_DEFAULT_SHELL")"
+
+  # --- create session and attach ---
+  _create_session "$session" "$work_dir" "$agent_cmd" "$editor_cmd" "$shell_cmd"
+  _attach_or_switch "$session"
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_new() {
+  _require_tmux
+  _ensure_fzf
+  _ensure_config
+
+  local git_root
+  git_root="$(_git_root)"
+
+  # --- title: from argument or prompt ---
+  local title="${1:-}"
+  if [[ -z "$title" ]]; then
+    printf "ws › task title: " >&2
+    read -r title
+  fi
+  if [[ -z "$title" ]]; then
+    echo "ws: error: title cannot be empty" >&2
+    exit 1
+  fi
+
+  # --- repo: from argument or fzf ---
+  local repo="${2:-}"
+  if [[ -z "$repo" ]]; then
+    local repos
+    repos=$(find "$git_root" -maxdepth 1 -mindepth 1 -type d \
+              -exec test -d "{}/.git" \; -print 2>/dev/null \
+            | sed "s|^$git_root/||" \
+            | sort)
+
+    if [[ -z "$repos" ]]; then
+      echo "ws: error: no git repos found under $git_root" >&2
+      exit 1
+    fi
+
+    repo=$(echo "$repos" \
+      | fzf \
+          --prompt="ws new › repo: " \
+          --height=40% \
+          --reverse \
+          --no-info \
+      ) || { echo "ws: cancelled" >&2; exit 0; }
+  fi
+
+  local repo_root="${git_root}/${repo}"
+  if [[ ! -d "$repo_root/.git" ]]; then
+    echo "ws: error: not a git repo: $repo_root" >&2
+    exit 1
+  fi
+
+  # --- generate id and file path ---
+  _ensure_task_dirs "$repo_root"
+
+  local id slug filename file
+  id="$(_next_id "$repo_root")"
+  slug="$(_slugify "$title")"
+  filename="${id}-${slug}.md"
+  file="${repo_root}/.tasks/backlog/${filename}"
+
+  # --- write task file ---
+  _write_task_template "$file" "$id" "$title" "$repo"
+  echo "ws: created $file" >&2
+
+  # --- open workspace immediately ---
+  _open_task "$file"
+}
+
+# ---------------------------------------------------------------------------
+cmd_open() {
+  _require_tmux
+  _ensure_fzf
+  _ensure_config
+
+  # Build fzf input
+  local tasks_input=""
+  while IFS= read -r file; do
+    tasks_input+="$(_format_task_line "$file")"$'\n'
+  done < <(_scan_tasks)
+
+  if [[ -z "$tasks_input" ]]; then
+    echo "ws: no tasks found under $(_git_root)" >&2
+    exit 1
+  fi
+
+  # Run fzf — tab-separated, path is the last field (hidden from display)
+  local selected
+  selected=$(echo "$tasks_input" \
+    | fzf \
+        --ansi \
+        --delimiter=$'\t' \
+        --with-nth=1 \
+        --prompt="ws › " \
+        --height=40% \
+        --reverse \
+        --no-info \
+    ) || { echo "ws: no task selected" >&2; exit 0; }
+
+  # Extract path (last tab field)
+  local file
+  file=$(echo "$selected" | awk -F'\t' '{print $NF}')
+
+  if [[ ! -f "$file" ]]; then
+    echo "ws: error: task file not found: $file" >&2
+    exit 1
+  fi
+
+  _open_task "$file"
+}
+
+cmd_list() {
+  _ensure_config
+
+  local count=0
+  while IFS= read -r file; do
+    _format_task_line "$file" | cut -f1  # display-only, strip path
+    count=$((count + 1))
+  done < <(_scan_tasks)
+
+  if [[ $count -eq 0 ]]; then
+    echo "ws: no tasks found under $(_git_root)" >&2
+  fi
+}
+
+cmd_sessions() {
+  _require_tmux
+  # List sessions whose names match the ws pattern (repo--T-NNN)
+  tmux list-sessions -F "#{session_name}  #{session_windows} windows  created #{session_created_string}" \
+    2>/dev/null \
+  | grep -E -- "--T-[0-9]+" \
+  || echo "ws: no active sessions"
+}
+
+cmd_kill() {
+  _require_tmux
+  _ensure_fzf
+
+  local sessions
+  sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null \
+    | grep -E -- "--T-[0-9]+" \
+    || true)
+
+  if [[ -z "$sessions" ]]; then
+    echo "ws: no active ws sessions to kill" >&2
+    exit 0
+  fi
+
+  local selected
+  selected=$(echo "$sessions" \
+    | fzf \
+        --prompt="ws kill › " \
+        --height=40% \
+        --reverse \
+        --no-info \
+    ) || { echo "ws: cancelled" >&2; exit 0; }
+
+  tmux kill-session -t "$selected"
+  echo "ws: killed session '$selected'"
+}
+
+cmd_attach() {
+  _require_tmux
+  _ensure_fzf
+
+  local sessions
+  sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null \
+    | grep -E -- "--T-[0-9]+" \
+    || true)
+
+  if [[ -z "$sessions" ]]; then
+    echo "ws: no active ws sessions" >&2
+    exit 0
+  fi
+
+  local selected
+  selected=$(echo "$sessions" \
+    | fzf \
+        --prompt="ws attach › " \
+        --height=40% \
+        --reverse \
+        --no-info \
+    ) || { echo "ws: cancelled" >&2; exit 0; }
+
+  _attach_or_switch "$selected"
+}
+
+cmd_help() {
+  cat <<'EOF'
+ws — workspace orchestrator
+
+USAGE
+  ws              Open task picker (fzf) → create or attach workspace
+  ws open         Same as ws
+  ws new          Prompt for title + repo → create task → open workspace
+  ws new <title>           Create task, pick repo via fzf
+  ws new <title> <repo>    Create task in specific repo, no prompts
+  ws list         Print all tasks across all repos
+  ws sessions     List active ws tmux sessions
+  ws kill         Pick session via fzf → kill it
+  ws attach       Pick session via fzf → attach to it
+  ws help         Show this help
+
+TASK FORMAT
+  Tasks are markdown files with YAML frontmatter in:
+    <repo>/.tasks/<status>/T-NNN-slug.md
+
+  Optional frontmatter fields (override global config):
+    worktree: true     # create git worktree at .worktrees/<slug>
+    agent: opencode    # command for the agent window
+    editor: nvim .     # command for the editor window
+    shell: zsh         # command for the shell window
+
+SESSION LAYOUT
+  Each workspace is a tmux session named <repo>--<id>:
+    agent   → AI agent (opencode / claude)
+    editor  → nvim . (focused on attach)
+    shell   → interactive shell
+
+CONFIG
+  ~/.config/ws/config   (created on first run)
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+main() {
+  local cmd="${1:-open}"
+  shift || true
+
+  case "$cmd" in
+    open)     cmd_open     ;;
+    new)      cmd_new  "$@" ;;
+    list)     cmd_list     ;;
+    sessions) cmd_sessions ;;
+    kill)     cmd_kill     ;;
+    attach)   cmd_attach   ;;
+    help|--help|-h) cmd_help ;;
+    *)
+      echo "ws: unknown command '$cmd'" >&2
+      echo "Run 'ws help' for usage." >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

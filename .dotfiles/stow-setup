@@ -1,0 +1,10 @@
+#!/bin/bash
+if [[ -z $STOW_FOLDERS ]]; then
+    STOW_FOLDERS="nvim,i3,i3-resurrect,aerospace"
+fi
+
+if [[ -z $DOTFILES ]]; then
+    DOTFILES=$HOME/git/victor/.dotfiles
+fi
+
+STOW_FOLDERS=$STOW_FOLDERS DOTFILES=$DOTFILES $DOTFILES/install
