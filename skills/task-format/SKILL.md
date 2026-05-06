@@ -7,6 +7,7 @@ description: Defines the canonical structure, frontmatter schema, and file namin
 
 All tasks live under `.tasks/` at the root of the current repo:
 
+- Task status is defined by which directory it is placed in.
 - New tasks are written to `.tasks/backlog/`
 - Tasks in other states may live in `.tasks/doing/`, `.tasks/done/`, `.tasks/blocked/`
 
@@ -32,7 +33,6 @@ Scan all files under `.tasks/` recursively for the highest existing `T-NNN` id (
 ---
 id: T-NNN
 title: Short imperative title
-status: backlog
 priority: medium
 created_at: YYYY-MM-DD
 workspace: <repo name from git or directory name>
@@ -40,8 +40,6 @@ workspace: <repo name from git or directory name>
 ```
 
 ### Valid values
-
-**status:** `backlog` | `doing` | `done` | `blocked`
 
 **priority:** `low` | `medium` | `high` | `critical`
 
@@ -91,7 +89,6 @@ Generated via plan-task
 ---
 id: T-198
 title: Audit failed login attempts
-status: backlog
 priority: medium
 created_at: 2026-04-28
 workspace: auth-service

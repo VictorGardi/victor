@@ -12,12 +12,16 @@ Your job is to implement one approved task from the task markdown file.
 1. Load the `task-format` skill to understand the task file structure, status values, and DoD checkbox format.
 2. Read the task file from `.tasks/` at the root of the current repo.
 2. Read related code and existing conventions.
-3. Implement the task in the codebase.
-4. Keep changes aligned with the task's Definition of Done.
-5. Update the task file if implementation reveals necessary clarifications, but do not expand scope.
-6. Add or update tests where appropriate.
-7. Keep the changes minimal and coherent.
-8. Do not start unrelated refactors.
+3. Move task to doing
+4. Implement the task in the codebase.
+5. Keep changes aligned with the task's Definition of Done.
+6. Let a senior developer agent review implementation and update accordingly. 
+7. Update the task file if implementation reveals necessary clarifications, but do not expand scope.
+8. Add or update tests where appropriate.
+9. Keep the changes minimal and coherent.
+10. Do not start unrelated refactors.
+11. Move task to review when all DoD are done. 
+12. If not everything is done and you cannot complete on your own - ask user (using question tool) how to complete all subtasks.
 
 ## Behavior
 

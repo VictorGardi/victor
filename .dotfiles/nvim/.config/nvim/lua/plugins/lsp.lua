@@ -27,13 +27,6 @@ return {
     },
   },
 
-  -- Bridge Mason <-> lspconfig
-  {
-    "mason-org/mason-lspconfig.nvim",
-    lazy = true,
-    opts = {},
-  },
-
   -- Auto-install tools
   {
     "WhoIsSethDaniel/mason-tool-installer.nvim",
@@ -58,7 +51,7 @@ return {
   -- LSP configuration
   {
     "neovim/nvim-lspconfig",
-    event = { "BufReadPost", "BufNewFile" },
+    lazy = false,
     dependencies = {
       "mason-org/mason.nvim",
       "mason-org/mason-lspconfig.nvim",
@@ -90,7 +83,7 @@ return {
 
           -- Highlight symbol under cursor
           local client = vim.lsp.get_client_by_id(event.data.client_id)
-          if client and client.supports_method("textDocument/documentHighlight") then
+          if client and client:supports_method("textDocument/documentHighlight") then
             local hl_group = vim.api.nvim_create_augroup("lsp-highlight", { clear = false })
             vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
               buffer = event.buf,
@@ -113,41 +106,31 @@ return {
         end,
       })
 
-      -- Capabilities (enhanced by blink.cmp)
+      -- Global capabilities (blink.cmp enhancements for all servers)
       local capabilities = require("blink.cmp").get_lsp_capabilities()
+      vim.lsp.config("*", { capabilities = capabilities })
 
-      -- Server configurations
-      local servers = {
-        ts_ls = {},
-        html = {},
-        cssls = {},
-        pyright = {},
-        lua_ls = {
-          settings = {
-            Lua = {
-              runtime = { version = "LuaJIT" },
-              workspace = {
-                checkThirdParty = false,
-                library = { vim.env.VIMRUNTIME },
-              },
-              completion = { callSnippet = "Replace" },
-              diagnostics = { globals = { "vim" } },
-              telemetry = { enable = false },
+      -- Server-specific settings
+      vim.lsp.config("lua_ls", {
+        settings = {
+          Lua = {
+            runtime = { version = "LuaJIT" },
+            workspace = {
+              checkThirdParty = false,
+              library = { vim.env.VIMRUNTIME },
             },
+            completion = { callSnippet = "Replace" },
+            diagnostics = { globals = { "vim" } },
+            telemetry = { enable = false },
           },
         },
-      }
-
-      require("mason-lspconfig").setup({
-        ensure_installed = vim.tbl_keys(servers),
-        handlers = {
-          function(server_name)
-            local server_opts = servers[server_name] or {}
-            server_opts.capabilities = vim.tbl_deep_extend("force", capabilities, server_opts.capabilities or {})
-            require("lspconfig")[server_name].setup(server_opts)
-          end,
-        },
       })
+
+      -- Install servers and auto-enable them via vim.lsp.enable() (automatic_enable = true by default)
+      require("mason-lspconfig").setup({
+        ensure_installed = { "ts_ls", "html", "cssls", "lua_ls", "pyright" },
+      })
+
     end,
   },
 }

@@ -3,7 +3,7 @@ return {
   {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
-    event = { "BufReadPost", "BufNewFile" },
+    lazy = false,
     dependencies = {
       "nvim-treesitter/nvim-treesitter-textobjects",
       "windwp/nvim-ts-autotag",
@@ -41,6 +41,8 @@ return {
           pcall(vim.treesitter.start, args.buf)
         end,
       })
+
+
 
       -- Textobjects: setup options
       require("nvim-treesitter-textobjects").setup({

@@ -7,7 +7,7 @@ Interview the user relentlessly about every important aspect of the plan until y
 
 ## Behavior
 
-- Ask questions one at a time.
+- Ask questions one at a time. Use the question tool to ask questions.
 - Walk down the decision tree branch by branch.
 - For each question:
   - explain why it matters

@@ -252,6 +252,68 @@ _ensure_task_dirs() {
     "$repo_root/.tasks/done"
 }
 
+# ---------------------------------------------------------------------------
+# Task movement helpers
+# ---------------------------------------------------------------------------
+
+_resolve_task() {
+  local input="$1"
+  # If input is an existing file, return it
+  if [[ -f "$input" ]]; then
+    echo "$input"
+    return 0
+  fi
+  # Search all tasks for matching ID
+  while IFS= read -r file; do
+    local id
+    id="$(fm_get "id" "$file")"
+    if [[ -z "$id" ]]; then
+      id="$(basename "$file" .md | grep -oE '^T-[0-9]+')"
+    fi
+    if [[ "$id" == "$input" ]]; then
+      echo "$file"
+      return 0
+    fi
+  done < <(_scan_tasks)
+  echo "ws: error: task not found: $input" >&2
+  return 1
+}
+
+_get_available_statuses() {
+  local repo_root="$1"
+  local current_status="${2:-}"
+  local tasks_dir="${repo_root}/.tasks"
+  local statuses=()
+  # Get existing status directories
+  if [[ -d "$tasks_dir" ]]; then
+    while IFS= read -r -d '' dir; do
+      local status
+      status="$(basename "$dir")"
+      [[ "$status" != "$current_status" ]] && statuses+=("$status")
+    done < <(find "$tasks_dir" -maxdepth 1 -mindepth 1 -type d -print0 2>/dev/null)
+  fi
+  # Fallback to default statuses if none found
+  if [[ ${#statuses[@]} -eq 0 ]]; then
+    local default_statuses=(backlog doing review done)
+    for s in "${default_statuses[@]}"; do
+      [[ "$s" != "$current_status" ]] && statuses+=("$s")
+    done
+  fi
+  # Sort and output
+  printf '%s\n' "${statuses[@]}" | sort
+}
+
+_move_task_file() {
+  local task_file="$1"
+  local new_status="$2"
+  local repo_root="$(_repo_root_from_path "$task_file")"
+  local new_dir="${repo_root}/.tasks/${new_status}"
+  mkdir -p "$new_dir"
+  local new_path="${new_dir}/$(basename "$task_file")"
+  mv "$task_file" "$new_path"
+  echo "ws: moved $(basename "$task_file" .md) to $new_status" >&2
+}
+
 # Write a full task-format markdown file.
 _write_task_template() {
   local file="$1"
@@ -485,6 +547,10 @@ cmd_open() {
   # Build fzf input
   local tasks_input=""
   while IFS= read -r file; do
+    # Skip tasks in "done" status
+    local status
+    status="$(_status_from_path "$file")"
+    [[ "$status" == "done" ]] && continue
     tasks_input+="$(_format_task_line "$file")"$'\n'
   done < <(_scan_tasks)
 
@@ -523,6 +589,10 @@ cmd_list() {
 
   local count=0
   while IFS= read -r file; do
+    # Skip tasks in "done" status
+    local status
+    status="$(_status_from_path "$file")"
+    [[ "$status" == "done" ]] && continue
     _format_task_line "$file" | cut -f1  # display-only, strip path
     count=$((count + 1))
   done < <(_scan_tasks)
@@ -604,6 +674,8 @@ USAGE
   ws new          Prompt for title + repo → create task → open workspace
   ws new <title>           Create task, pick repo via fzf
   ws new <title> <repo>    Create task in specific repo, no prompts
+  ws mv            Pick task + status via fzf → move task to new status
+  ws mv <task> <status>  Move specific task to status non-interactively
   ws list         Print all tasks across all repos
   ws sessions     List active ws tmux sessions
   ws kill         Pick session via fzf → kill it
@@ -632,6 +704,87 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# Commands (continued)
+# ---------------------------------------------------------------------------
+
+cmd_mv() {
+  _ensure_fzf
+  _ensure_config
+
+  local task_input="${1:-}"
+  local new_status="${2:-}"
+
+  # Non-interactive mode: ws mv <task> <status>
+  if [[ -n "$task_input" && -n "$new_status" ]]; then
+    local task_file
+    task_file="$(_resolve_task "$task_input")" || exit 1
+    _move_task_file "$task_file" "$new_status"
+    return
+  fi
+
+  # Interactive mode: pick task then status
+  local tasks_input=""
+  while IFS= read -r file; do
+    # Skip tasks in "done" status
+    local status
+    status="$(_status_from_path "$file")"
+    [[ "$status" == "done" ]] && continue
+    tasks_input+="$(_format_task_line "$file")"$'\n'
+  done < <(_scan_tasks)
+
+  if [[ -z "$tasks_input" ]]; then
+    echo "ws: no tasks found under $(_git_root)" >&2
+    exit 1
+  fi
+
+  # Pick task
+  local selected
+  selected=$(echo "$tasks_input" \
+    | fzf \
+        --ansi \
+        --delimiter=$'\t' \
+        --with-nth=1 \
+        --prompt="ws mv › task: " \
+        --height=40% \
+        --reverse \
+        --no-info \
+    ) || { echo "ws: cancelled" >&2; exit 0; }
+
+  local task_file
+  task_file=$(echo "$selected" | awk -F'\t' '{print $NF}')
+
+  if [[ ! -f "$task_file" ]]; then
+    echo "ws: error: task file not found: $task_file" >&2
+    exit 1
+  fi
+
+  # Get current status and available statuses
+  local current_status
+  current_status="$(_status_from_path "$task_file")"
+  local repo_root
+  repo_root="$(_repo_root_from_path "$task_file")"
+  local statuses
+  statuses="$(_get_available_statuses "$repo_root" "$current_status")"
+
+  if [[ -z "$statuses" ]]; then
+    echo "ws: error: no other statuses available (current: $current_status)" >&2
+    exit 1
+  fi
+
+  # Pick new status
+  local selected_status
+  selected_status=$(echo "$statuses" \
+    | fzf \
+        --prompt="ws mv › new status (current: $current_status): " \
+        --height=40% \
+        --reverse \
+        --no-info \
+    ) || { echo "ws: cancelled" >&2; exit 0; }
+
+  _move_task_file "$task_file" "$selected_status"
+}
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
@@ -642,6 +795,7 @@ main() {
   case "$cmd" in
     open)     cmd_open     ;;
     new)      cmd_new  "$@" ;;
+    mv)       cmd_mv "$@" ;;
     list)     cmd_list     ;;
     sessions) cmd_sessions ;;
     kill)     cmd_kill     ;;
