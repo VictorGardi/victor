@@ -28,5 +28,23 @@ ln ~/.dotfiles/minimal_vim/.vimrc ~/.vimrc
 
 ## How to configure ipython
 - Install by pip install ipython
-- cp ipython/ipython_config.py into ~/.ipython/profile_default/ 
+- cp ipython/ipython_config.py into ~/.ipython/profile_default/
+
+## Symlinked configs
+The following configs need to be symlinked from this repo to their expected locations:
+
+```bash
+# From the repo root (~/.dotfiles or /Users/victor/git/victor/.dotfiles)
+# Tmux
+ln -s $(pwd)/.tmux.conf ~/.tmux.conf
+
+# Aerospace
+ln -s $(pwd)/aerospace/.config/aerospace.toml ~/.config/aerospace.toml
+
+# Wezterm
+ln -s $(pwd)/wezterm/.wezterm.lua ~/.wezterm.lua
+
+# Bin ws script
+ln -s $(pwd)/bin/ws ~/bin/ws
+``` 
 
