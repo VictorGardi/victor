@@ -33,14 +33,34 @@ return {
     },
   },
 
-  -- Browser markdown preview
+  -- Webview/browser markdown preview
   {
-    "iamcco/markdown-preview.nvim",
-    cmd = { "MarkdownPreviewToggle", "MarkdownPreview", "MarkdownPreviewStop" },
-    ft = { "markdown" },
-    build = "cd app && npm install && git checkout -- yarn.lock",
+    "toppair/peek.nvim",
+    build = "deno task --quiet build:fast",
     keys = {
-      { "<leader>mb", "<cmd>MarkdownPreviewToggle<CR>", desc = "Toggle markdown browser preview" },
+      {
+        "<leader>mb",
+        function()
+          local peek = require("peek")
+          if peek.is_open() then
+            peek.close()
+          else
+            peek.open()
+          end
+        end,
+        desc = "Toggle markdown preview",
+      },
+    },
+    opts = {
+      auto_load = true,
+      close_on_bdelete = true,
+      syntax = true,
+      theme = "dark",
+      update_on_change = true,
+      app = "webview",
+      filetype = { "markdown" },
+      throttle_at = 200000,
+      throttle_time = "auto",
     },
   },
 }

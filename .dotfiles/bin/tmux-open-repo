@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin"
+
+BASE_DIR="$HOME/git"
+
+# ── Pick a repo ───────────────────────────────────────────────────
+repo=$(find "$BASE_DIR" -maxdepth 2 -name .git -exec dirname {} \; \
+  | sort -u \
+  | fzf --tmux --header 'Select repo to open (agent + vim + terminal)' \
+        --with-nth -1 --delimiter / \
+        --preview 'ls -1 {}' 2>/dev/null)
+
+[[ -z "$repo" ]] && exit 0
+
+repo_name=$(basename "$repo")
+
+# ── Pick a unique session name ────────────────────────────────────
+session_name="$repo_name"
+if tmux has-session -t "$session_name" 2>/dev/null; then
+  n=2
+  while tmux has-session -t "${repo_name}-${n}" 2>/dev/null; do
+    n=$((n + 1))
+  done
+  session_name="${repo_name}-${n}"
+fi
+
+# ── Create session (window 1: agent) ────────────────────────────
+tmux new-session -d -s "$session_name" -c "$repo" -n 'agent'
+tmux send-keys -t "$session_name:1" 'opencode' Enter
+
+# Window 2: vim
+tmux new-window -t "$session_name" -n 'vim' -c "$repo"
+tmux send-keys -t "$session_name:2" 'nvim' Enter
+
+# Window 3: terminal
+tmux new-window -t "$session_name" -n 'terminal' -c "$repo"
+
+# ── Focus the agent window ──────────────────────────────────────
+tmux select-window -t "$session_name:1"
+
+# ── Switch to it ──────────────────────────────────────────────────
+tmux switch-client -t "$session_name"
