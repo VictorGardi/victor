@@ -1,0 +1,8 @@
+tap "nikitabobko/tap"
+cask "aerospace"
+cask "wezterm"
+cask "spotify"
+cask "microsoft-teams"
+cask "beeper"
+cask "microsoft-outlook"
+cask "zen"
