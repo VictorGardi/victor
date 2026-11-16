@@ -303,6 +303,25 @@ _get_available_statuses() {
   printf '%s\n' "${statuses[@]}" | sort
 }
 
+_kill_session_if_done() {
+  local task_file="$1"
+  local new_status="$2"
+
+  if [[ "$new_status" == "done" ]]; then
+    local repo id session
+    repo="$(_repo_from_path "$task_file")"
+    id="$(fm_get "id" "$task_file")"
+    if [[ -z "$id" ]]; then
+      id="$(basename "$task_file" .md | grep -oE '^T-[0-9]+')"
+    fi
+    session="$(_session_name "$repo" "$id")"
+    if _session_exists "$session"; then
+      tmux kill-session -t "$session"
+      echo "ws: killed session '$session'" >&2
+    fi
+  fi
+}
+
 _move_task_file() {
   local task_file="$1"
   local new_status="$2"
@@ -719,6 +738,7 @@ cmd_mv() {
     local task_file
     task_file="$(_resolve_task "$task_input")" || exit 1
     _move_task_file "$task_file" "$new_status"
+    _kill_session_if_done "$task_file" "$new_status"
     return
   fi
 
@@ -782,6 +802,7 @@ cmd_mv() {
     ) || { echo "ws: cancelled" >&2; exit 0; }
 
   _move_task_file "$task_file" "$selected_status"
+  _kill_session_if_done "$task_file" "$selected_status"
 }
 
 # ---------------------------------------------------------------------------

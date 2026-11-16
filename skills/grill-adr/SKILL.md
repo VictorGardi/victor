@@ -1,7 +1,6 @@
 ---
 name: grill-adr
 description: Outcome-first grilling that finds the decisions worth an ADR. A short interview with the user about the outcome, then an agent-vs-agent interview backed by research, escalating only the questions that need the user. Ends with a Q&A table, what the decisions mean for the end user, and advice on to-spec vs implementing right away. Use instead of grill-with-docs when the user wants to settle decisions, not implementation details.
-disable-model-invocation: true
 ---
 
 Settle the decisions that deserve an ADR, at the altitude where they make sense. The user cares about the outcome and that it works as expected. They do not care about function names or technical detail.
